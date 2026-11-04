@@ -6,50 +6,106 @@ const socket = io();
 
 // Guaranteed Connection & Registration
 socket.on('connect', () => {
-  console.log("Connected to server! ID:", socket.id);
   socket.emit('register-user', myUsername);
-  const statusEl = document.getElementById('activePartnerText');
-  if (statusEl && !partnerUsername) {
-    statusEl.innerHTML = `🟢 Online as @${myUsername} • Koi dost connect karein`;
-  }
+  updateActiveUI();
 });
 
+// App ke andar hi apna naam badalna
 function changeMyUsername() {
-  const newU = prompt("Naya Username likho (bina space ke):", myUsername);
+  const newU = prompt("Apna Naya Username likhein:", myUsername);
   if (newU && newU.trim()) {
     myUsername = newU.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
     localStorage.setItem('zingra_my_username', myUsername);
     document.getElementById('myUsernameDisplay').innerText = "@" + myUsername;
     socket.emit('register-user', myUsername);
+    updateActiveUI();
   }
 }
 
-// URL Params & Auto-Switch to Chat
+// URL se sirf pehli baar read karna, fir URL clean kar dena
 const urlParams = new URLSearchParams(window.location.search);
 let partnerUsername = urlParams.get('chat') || localStorage.getItem('zingra_active_partner') || '';
+
+if (urlParams.has('chat')) {
+  // URL bar se ?chat= hata kar clean kar do
+  window.history.replaceState({}, document.title, window.location.pathname);
+}
 
 function setPartner(name) {
   partnerUsername = name.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
   localStorage.setItem('zingra_active_partner', partnerUsername);
-  document.getElementById('activePartnerText').innerText = `🔒 Chatting with: @${partnerUsername}`;
-  document.getElementById('partnerInput').value = partnerUsername;
+  saveToRecentChats(partnerUsername);
+  updateActiveUI();
   loadSavedChats();
+}
+
+function updateActiveUI() {
+  const statusEl = document.getElementById('activePartnerText');
+  if (partnerUsername) {
+    statusEl.innerHTML = `🔒 Chatting with: <b style="color:#38bdf8;">@${partnerUsername}</b>`;
+    document.getElementById('partnerInput').value = partnerUsername;
+  } else {
+    statusEl.innerHTML = `🟢 Online as @${myUsername} • Dost ka naam likhein`;
+  }
+  renderRecentChats();
 }
 
 function connectToPartnerManual() {
   const val = document.getElementById('partnerInput').value.trim();
-  if (!val || val === myUsername) return alert("Valid dost ka username likhein!");
+  if (!val) return alert("Dost ka username likhein!");
+  if (val.toLowerCase() === myUsername.toLowerCase()) return alert("Aap apne aap se chat nahi kar sakte!");
   setPartner(val);
-  alert(`@${val} ke sath chat connect ho gayi!`);
 }
 
-function shareMyChatLink() {
+// RECENT CHATS LIST (WhatsApp style contacts)
+function saveToRecentChats(name) {
+  let recents = JSON.parse(localStorage.getItem('zingra_recents') || '[]');
+  if (!recents.includes(name)) {
+    recents.unshift(name);
+    if (recents.length > 5) recents.pop();
+    localStorage.setItem('zingra_recents', JSON.stringify(recents));
+  }
+}
+
+function renderRecentChats() {
+  let recents = JSON.parse(localStorage.getItem('zingra_recents') || '[]');
+  let container = document.getElementById('recentChatsList');
+  if (!container) {
+    container = document.createElement('div');
+    container.id = 'recentChatsList';
+    container.style.cssText = "display: flex; gap: 6px; padding: 6px 14px; background: #111827; overflow-x: auto; border-bottom: 1px solid #1f2937;";
+    const pBar = document.querySelector('.user-profile-bar');
+    if (pBar) pBar.parentNode.insertBefore(container, pBar.nextSibling);
+  }
+  if (recents.length === 0) {
+    container.innerHTML = `<span style="font-size:11px; color:#6b7280;">No recent chats</span>`;
+    return;
+  }
+  container.innerHTML = `<span style="font-size:11px; color:#94a3b8; align-self:center; margin-right:4px;">Recents:</span>` + recents.map(u => `
+    <button onclick="setPartner('${u}')" style="background:${u === partnerUsername ? '#2563eb' : '#1f2937'}; color:#fff; border:1px solid #374151; padding:3px 10px; border-radius:12px; font-size:11px; cursor:pointer;">
+      @${u}
+    </button>
+  `).join('');
+}
+
+// DIRECT WHATSAPP NATIVE SHARE
+async function shareMyChatLink() {
   const link = `${window.location.origin}/?chat=${myUsername}`;
+  if (navigator.share) {
+    try {
+      await navigator.share({
+        title: 'Zingra Private Chat',
+        text: `Hey! Muzhe Zingra par private encrypted message karo:\n`,
+        url: link
+      });
+      return;
+    } catch (e) {}
+  }
   navigator.clipboard.writeText(link);
   alert("Link Copied! Apne dost ko bhejo:\n" + link);
 }
 
-// --- E2EE ENGINE ---
+// --- E2EE DIRECT MESSAGING ---
 let sharedKey = null;
 async function initCrypto() {
   if (!sharedKey) {
@@ -77,7 +133,7 @@ function loadSavedChats() {
 }
 
 async function sendMsg() {
-  if (!partnerUsername) return alert("Pehle dost ka username connect karein!");
+  if (!partnerUsername) return alert("Pehle dost ka username likhein aur Chat dabayein!");
   const input = document.getElementById('msgInput');
   const text = input.value.trim();
   if (!text) return;
@@ -126,7 +182,6 @@ socket.on('receive-message', async (data) => {
     saved.push({ text, type: 'received', time: data.time });
     localStorage.setItem(key, JSON.stringify(saved));
     
-    // Switch to chat if on other screen
     switchTab('chat');
   } catch (err) {
     console.error("Decryption error:", err);
@@ -228,8 +283,8 @@ function switchTab(t) {
 }
 
 renderFeed();
+updateActiveUI();
 
-// AGAR LINK ME ?chat= HAI TOH DIRECT CHAT TAB OPEN KARO
 if (partnerUsername) {
   setPartner(partnerUsername);
   switchTab('chat');

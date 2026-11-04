@@ -1,0 +1,525 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Zingra ⚡ Video & Related Stream</title>
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0f0f0f; color: #fff; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+
+    /* Top App Bar */
+    .top-bar { height: 48px; background: #0f0f0f; display: flex; align-items: center; justify-content: space-between; padding: 0 14px; border-bottom: 1px solid #222; position: sticky; top: 0; z-index: 100; }
+    .logo-box { display: flex; align-items: center; gap: 8px; font-size: 19px; font-weight: 900; background: linear-gradient(90deg, #38bdf8, #818cf8); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+    .back-btn { background: none; border: none; color: #fff; font-size: 18px; font-weight: bold; cursor: pointer; display: none; align-items: center; gap: 4px; }
+
+    /* Screen Views */
+    .screen { flex: 1; overflow-y: auto; display: none; padding-bottom: 65px; }
+    .active-screen { display: block; }
+
+    /* ==================================================== */
+    /* --- 1. HOME FEED (YOUTUBE STYLE CARDS) --- */
+    /* ==================================================== */
+    .categories-bar { display: flex; gap: 8px; padding: 10px 14px; overflow-x: auto; background: #0f0f0f; position: sticky; top: 0; z-index: 40; scrollbar-width: none; }
+    .chip { background: #272727; color: #f1f1f1; padding: 6px 14px; border-radius: 8px; font-size: 12px; font-weight: 500; white-space: nowrap; cursor: pointer; }
+    .chip.active { background: #fff; color: #000; font-weight: bold; }
+
+    .feed-container { display: flex; flex-direction: column; gap: 16px; padding: 8px 0; }
+    .feed-card { cursor: pointer; display: flex; flex-direction: column; }
+    .thumb-box { position: relative; width: 100%; aspect-ratio: 16/9; background: #1a1a1a; }
+    .thumb-box img { width: 100%; height: 100%; object-fit: cover; }
+    .duration { position: absolute; bottom: 8px; right: 8px; background: rgba(0,0,0,0.8); font-size: 11px; padding: 2px 6px; border-radius: 4px; font-weight: bold; }
+    
+    .feed-info { display: flex; gap: 12px; padding: 12px 14px; }
+    .feed-avatar { width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 14px; flex-shrink: 0; }
+    .feed-meta { flex: 1; }
+    .feed-title { font-size: 14px; font-weight: 600; line-height: 1.3; margin-bottom: 4px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+    .feed-subtitle { font-size: 12px; color: #aaa; }
+
+    /* ==================================================== */
+    /* --- 2. DEDICATED WATCH PAGE & RELATED VIDEOS --- */
+    /* ==================================================== */
+    .video-sticky-box { width: 100%; aspect-ratio: 16/9; background: #000; position: sticky; top: 0; z-index: 50; }
+    .video-sticky-box video { width: 100%; height: 100%; }
+
+    .watch-details { padding: 12px 14px; border-bottom: 1px solid #1f1f1f; }
+    .watch-title { font-size: 15px; font-weight: 700; line-height: 1.3; margin-bottom: 4px; }
+    .watch-views { font-size: 12px; color: #888; margin-bottom: 10px; }
+
+    .channel-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+    .channel-left { display: flex; align-items: center; gap: 10px; }
+    .c-avatar-sm { width: 34px; height: 34px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 13px; }
+    .sub-btn { background: #fff; color: #000; border: none; padding: 6px 14px; border-radius: 18px; font-size: 12px; font-weight: bold; cursor: pointer; }
+    .sub-btn.subscribed { background: #272727; color: #fff; }
+
+    .actions-bar { display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; margin-bottom: 10px; }
+    .act-pill { background: #222; border: none; color: #fff; padding: 6px 14px; border-radius: 16px; font-size: 12px; font-weight: 600; display: flex; align-items: center; gap: 6px; white-space: nowrap; cursor: pointer; }
+    .act-pill.liked { color: #ef4444; }
+
+    /* Comments Dropdown Box */
+    .comments-box { background: #181818; border-radius: 10px; padding: 10px 12px; margin: 10px 0; }
+    .comments-header-toggle { font-size: 13px; font-weight: bold; display: flex; justify-content: space-between; cursor: pointer; }
+    .comments-content { margin-top: 10px; }
+    .c-list { display: flex; flex-direction: column; gap: 8px; max-height: 120px; overflow-y: auto; margin-bottom: 8px; }
+    .c-item { font-size: 12px; background: #222; padding: 6px 10px; border-radius: 6px; }
+    .c-item b { color: #38bdf8; margin-right: 4px; }
+    .c-input-row { display: flex; gap: 6px; }
+    .c-input-field { flex: 1; background: #272727; border: 1px solid #333; color: #fff; padding: 6px 10px; border-radius: 16px; font-size: 12px; outline: none; }
+    .c-post-btn { background: #38bdf8; border: none; color: #000; font-weight: bold; padding: 0 12px; border-radius: 16px; font-size: 11px; }
+
+    /* RELATED VIDEOS SECTION (UP NEXT) */
+    .related-section { padding: 14px; }
+    .related-title { font-size: 14px; font-weight: bold; margin-bottom: 12px; display: flex; align-items: center; gap: 6px; }
+    .related-title span { color: #38bdf8; font-size: 16px; }
+    
+    .related-list { display: flex; flex-direction: column; gap: 14px; }
+    .related-card { display: flex; gap: 10px; cursor: pointer; }
+    .related-thumb { width: 130px; aspect-ratio: 16/9; position: relative; border-radius: 6px; overflow: hidden; background: #222; flex-shrink: 0; }
+    .related-thumb img { width: 100%; height: 100%; object-fit: cover; }
+    .related-duration { position: absolute; bottom: 4px; right: 4px; background: rgba(0,0,0,0.85); font-size: 10px; padding: 1px 4px; border-radius: 3px; font-weight: bold; }
+    .related-meta { flex: 1; display: flex; flex-direction: column; justify-content: center; }
+    .related-card-title { font-size: 13px; font-weight: 600; line-height: 1.3; margin-bottom: 3px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+    .related-card-sub { font-size: 11px; color: #aaa; }
+
+    /* ==================================================== */
+    /* --- 3. ZINGRA E2EE CHAT --- */
+    /* ==================================================== */
+    #chat-screen { background: #090d16; display: none; flex-direction: column; height: 100%; padding-bottom: 60px; }
+    .chat-header { background: #111827; padding: 10px 14px; display: flex; align-items: center; gap: 10px; border-bottom: 1px solid #1f2937; }
+    .chats-container { flex: 1; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 8px; }
+    .bubble { max-width: 80%; padding: 8px 12px; border-radius: 12px; font-size: 14px; line-height: 1.4; }
+    .sent { align-self: flex-end; background: #2563eb; color: #fff; border-bottom-right-radius: 2px; }
+    .received { align-self: flex-start; background: #1f2937; color: #e2e8f0; border-bottom-left-radius: 2px; }
+    .time-tick { font-size: 9px; opacity: 0.7; text-align: right; margin-top: 3px; }
+    
+    .chat-input-bar { background: #111827; padding: 8px 12px; display: flex; align-items: center; gap: 8px; position: fixed; bottom: 56px; width: 100%; }
+    .chat-input { flex: 1; background: #1f2937; border: 1px solid #374151; color: #fff; padding: 9px 14px; border-radius: 20px; outline: none; font-size: 14px; }
+    .send-btn { width: 38px; height: 38px; background: #38bdf8; border: none; border-radius: 50%; color: #000; font-weight: bold; cursor: pointer; }
+
+    /* Bottom Navigation */
+    .bottom-nav { position: fixed; bottom: 0; left: 0; width: 100%; height: 56px; background: #0f0f0f; border-top: 1px solid #222; display: flex; justify-content: space-around; align-items: center; z-index: 100; }
+    .nav-item { display: flex; flex-direction: column; align-items: center; color: #888; font-size: 10px; cursor: pointer; gap: 3px; }
+    .nav-item.active { color: #fff; font-weight: bold; }
+    .nav-icon { font-size: 19px; }
+  </style>
+</head>
+<body>
+
+  <!-- Top App Bar -->
+  <div class="top-bar">
+    <div style="display: flex; align-items: center; gap: 8px;">
+      <button id="backBtn" class="back-btn" onclick="backToFeed()">← Back</button>
+      <div id="mainLogo" class="logo-box">⚡ Zingra</div>
+    </div>
+    <div style="background: #10b98122; color: #10b981; font-size: 11px; padding: 3px 8px; border-radius: 10px; font-weight: bold;">✨ Ad-Free</div>
+  </div>
+
+  <!-- ================= 1. HOME FEED SCREEN ================= -->
+  <div id="feed-screen" class="screen active-screen">
+    <div class="categories-bar">
+      <div class="chip active">All</div>
+      <div class="chip">Animation</div>
+      <div class="chip">Sci-Fi VFX</div>
+      <div class="chip">Tech & Coding</div>
+      <div class="chip">Nature</div>
+    </div>
+    <div id="feedList" class="feed-container"></div>
+  </div>
+
+  <!-- ================= 2. DEDICATED WATCH PAGE ================= -->
+  <div id="watch-screen" class="screen">
+    <!-- Active Sticky Video Player -->
+    <div class="video-sticky-box">
+      <video id="watchVideoPlayer" controls autoplay playsinline></video>
+    </div>
+
+    <!-- Active Video Details -->
+    <div class="watch-details">
+      <div id="activeTitle" class="watch-title">Video Title</div>
+      <div id="activeViews" class="watch-views">Views • Date</div>
+
+      <div class="channel-row">
+        <div class="channel-left">
+          <div id="activeAvatar" class="c-avatar-sm" style="background: #e11d48;">Z</div>
+          <div>
+            <div id="activeChannel" style="font-size: 13px; font-weight: bold;">Channel Name</div>
+            <div style="font-size: 11px; color: #888;">1.2M subscribers</div>
+          </div>
+        </div>
+        <button id="subBtn" class="sub-btn" onclick="toggleSub()">Subscribe</button>
+      </div>
+
+      <div class="actions-bar">
+        <button id="likeBtn" class="act-pill" onclick="toggleActiveLike()">👍 <span id="activeLikeCount">24K</span></button>
+        <button class="act-pill" onclick="shareActiveVideo()">↗ Share</button>
+        <button class="act-pill" onclick="switchTab('chat')" style="background:linear-gradient(90deg, #2563eb, #38bdf8); color:#000; font-weight:bold;">👥 Watch Party</button>
+      </div>
+
+      <!-- Comments Accordion -->
+      <div class="comments-box">
+        <div class="comments-header-toggle" onclick="toggleCommentsView()">
+          <span>💬 Comments (<span id="cCount">2</span>)</span>
+          <span id="cArrow">▼</span>
+        </div>
+        <div id="cContent" class="comments-content">
+          <div id="cList" class="c-list"></div>
+          <div class="c-input-row">
+            <input type="text" id="cInput" class="c-input-field" placeholder="Add a comment..." onkeypress="if(event.key==='Enter') postComment()" />
+            <button class="c-post-btn" onclick="postComment()">Post</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- RELATED VIDEOS (UP NEXT) -->
+    <div class="related-section">
+      <div class="related-title"><span>▶</span> Up Next • Related Videos</div>
+      <div id="relatedVideosList" class="related-list"></div>
+    </div>
+  </div>
+
+  <!-- ================= 3. ZINGRA E2EE CHAT ================= -->
+  <div id="chat-screen" class="screen">
+    <div class="chat-header">
+      <div style="width: 32px; height: 32px; border-radius: 50%; background: #2563eb; display: flex; align-items: center; justify-content: center;">🔒</div>
+      <div>
+        <div style="font-weight: bold; font-size: 14px;">Zingra Secret Peer</div>
+        <div style="font-size: 11px; color: #10b981;">● End-to-End Encrypted</div>
+      </div>
+    </div>
+    <div id="chatsContainer" class="chats-container"></div>
+    <div class="chat-input-bar">
+      <input type="text" id="msgInput" class="chat-input" placeholder="Secret message likho..." onkeypress="if(event.key === 'Enter') sendMsg()" />
+      <button class="send-btn" onclick="sendMsg()">➤</button>
+    </div>
+  </div>
+
+  <!-- Bottom Navigation -->
+  <div class="bottom-nav">
+    <div id="nav-home" class="nav-item active" onclick="switchTab('feed')">
+      <div class="nav-icon">🏠</div>
+      <div>Home</div>
+    </div>
+    <div id="nav-watch" class="nav-item" onclick="switchTab('watch')">
+      <div class="nav-icon">🎬</div>
+      <div>Watch</div>
+    </div>
+    <div id="nav-chat" class="nav-item" onclick="switchTab('chat')">
+      <div class="nav-icon">💬</div>
+      <div>Zingra Chat</div>
+    </div>
+  </div>
+
+  <script>
+    // --- VIDEO DATABASE ---
+    const allVideos = [
+      {
+        id: "vid1",
+        title: "Big Buck Bunny - 4K Ultra HD Open Source Movie",
+        channel: "Blender Open Animation",
+        avatar: "B",
+        avatarBg: "#f97316",
+        views: "4.8M views • 2 days ago",
+        duration: "10:34",
+        thumb: "https://images.unsplash.com/photo-1578632767115-351597cf2477?w=600",
+        hlsSrc: "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8",
+        likes: 42000,
+        comments: [
+          { user: "Rohan", text: "Quality ekdum mind-blowing hai bhai! 🔥" },
+          { user: "Aman", text: "Watch Party ka sound aur video sync gazab hai." }
+        ]
+      },
+      {
+        id: "vid2",
+        title: "Tears of Steel - Cyberpunk Sci-Fi VFX Short Film",
+        channel: "Sci-Fi Cinema Universe",
+        avatar: "S",
+        avatarBg: "#06b6d4",
+        views: "2.1M views • 1 week ago",
+        duration: "12:14",
+        thumb: "https://images.unsplash.com/photo-1534447677768-be436bb09401?w=600",
+        hlsSrc: "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8",
+        likes: 18400,
+        comments: [
+          { user: "Vikas", text: "Hollywood level VFX open source me!" }
+        ]
+      },
+      {
+        id: "vid3",
+        title: "Building Mobile Apps with Zero Budget & Cloud Computing",
+        channel: "OpenDev Tech India",
+        avatar: "O",
+        avatarBg: "#10b981",
+        views: "980K views • 3 days ago",
+        duration: "18:45",
+        thumb: "https://images.unsplash.com/photo-1526374965328-7f61d4dc18c5?w=600",
+        hlsSrc: "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8",
+        likes: 35000,
+        comments: [
+          { user: "Pooja", text: "Phone se itna bada project? Really inspiring!" }
+        ]
+      },
+      {
+        id: "vid4",
+        title: "Lofi Beats - Relaxing Chill Music Stream 24/7",
+        channel: "Chill Vibes Record",
+        avatar: "C",
+        avatarBg: "#a855f7",
+        views: "6.4M views • Live now",
+        duration: "24:00",
+        thumb: "https://images.unsplash.com/photo-1518709268805-4e9042af9f23?w=600",
+        hlsSrc: "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8",
+        likes: 72000,
+        comments: [
+          { user: "Karan", text: "Code karte waqt ye sunna best hai." }
+        ]
+      }
+    ];
+
+    let currentVideo = allVideos[0];
+    let hlsInstance = null;
+    const videoPlayer = document.getElementById('watchVideoPlayer');
+
+    // --- 1. RENDER HOME FEED ---
+    function renderFeed() {
+      const container = document.getElementById('feedList');
+      container.innerHTML = '';
+
+      allVideos.forEach(v => {
+        const card = document.createElement('div');
+        card.className = 'feed-card';
+        card.onclick = () => openWatchPage(v);
+        card.innerHTML = `
+          <div class="thumb-box">
+            <img src="${v.thumb}" alt="${v.title}">
+            <div class="duration">${v.duration}</div>
+          </div>
+          <div class="feed-info">
+            <div class="feed-avatar" style="background:${v.avatarBg}">${v.avatar}</div>
+            <div class="feed-meta">
+              <div class="feed-title">${v.title}</div>
+              <div class="feed-subtitle">${v.channel} • ${v.views}</div>
+            </div>
+          </div>
+        `;
+        container.appendChild(card);
+      });
+    }
+
+    // --- 2. OPEN DEDICATED WATCH PAGE ---
+    function openWatchPage(videoData) {
+      currentVideo = videoData;
+
+      // Update Watch Page Info
+      document.getElementById('activeTitle').innerText = videoData.title;
+      document.getElementById('activeViews').innerText = `${videoData.channel} • ${videoData.views}`;
+      document.getElementById('activeAvatar').innerText = videoData.avatar;
+      document.getElementById('activeAvatar').style.background = videoData.avatarBg;
+      document.getElementById('activeChannel').innerText = videoData.channel;
+
+      // Update Likes from localStorage
+      const isLiked = localStorage.getItem(`like_${videoData.id}`) === 'true';
+      const likeBtn = document.getElementById('likeBtn');
+      likeBtn.classList.toggle('liked', isLiked);
+      document.getElementById('activeLikeCount').innerText = isLiked ? (videoData.likes + 1) : videoData.likes;
+
+      // Load Video Source in HLS
+      if (Hls.isSupported()) {
+        if (hlsInstance) hlsInstance.destroy();
+        hlsInstance = new Hls();
+        hlsInstance.loadSource(videoData.hlsSrc);
+        hlsInstance.attachMedia(videoPlayer);
+      } else if (videoPlayer.canPlayType('application/vnd.apple.mpegurl')) {
+        videoPlayer.src = videoData.hlsSrc;
+      }
+      videoPlayer.play();
+
+      // Render Comments for this video
+      renderComments();
+
+      // Render Related Videos (All videos except current)
+      renderRelatedVideos();
+
+      // Switch to Watch Screen & show back button
+      switchTab('watch');
+      document.getElementById('backBtn').style.display = 'flex';
+      window.scrollTo(0, 0);
+    }
+
+    // --- 3. RENDER RELATED VIDEOS (UP NEXT) ---
+    function renderRelatedVideos() {
+      const relatedContainer = document.getElementById('relatedVideosList');
+      relatedContainer.innerHTML = '';
+
+      const related = allVideos.filter(v => v.id !== currentVideo.id);
+
+      related.forEach(v => {
+        const item = document.createElement('div');
+        item.className = 'related-card';
+        item.onclick = () => openWatchPage(v);
+        item.innerHTML = `
+          <div class="related-thumb">
+            <img src="${v.thumb}" alt="${v.title}">
+            <div class="related-duration">${v.duration}</div>
+          </div>
+          <div class="related-meta">
+            <div class="related-card-title">${v.title}</div>
+            <div class="related-card-sub">${v.channel}</div>
+            <div class="related-card-sub">${v.views}</div>
+          </div>
+        `;
+        relatedContainer.appendChild(item);
+      });
+    }
+
+    // --- 4. COMMENTS SYSTEM ---
+    function renderComments() {
+      const saved = JSON.parse(localStorage.getItem(`comments_${currentVideo.id}`) || '[]');
+      const allC = [...currentVideo.comments, ...saved];
+      document.getElementById('cCount').innerText = allC.length;
+
+      const list = document.getElementById('cList');
+      list.innerHTML = allC.map(c => `<div class="c-item"><b>${c.user}</b> ${c.text}</div>`).join('');
+    }
+
+    function postComment() {
+      const input = document.getElementById('cInput');
+      const text = input.value.trim();
+      if (!text) return;
+
+      const saved = JSON.parse(localStorage.getItem(`comments_${currentVideo.id}`) || '[]');
+      saved.push({ user: "You", text });
+      localStorage.setItem(`comments_${currentVideo.id}`, JSON.stringify(saved));
+
+      renderComments();
+      input.value = '';
+    }
+
+    function toggleCommentsView() {
+      const cContent = document.getElementById('cContent');
+      const arrow = document.getElementById('cArrow');
+      if (cContent.style.display === 'none') {
+        cContent.style.display = 'block';
+        arrow.innerText = '▲';
+      } else {
+        cContent.style.display = 'none';
+        arrow.innerText = '▼';
+      }
+    }
+
+    function toggleActiveLike() {
+      const isLiked = localStorage.getItem(`like_${currentVideo.id}`) === 'true';
+      const newStatus = !isLiked;
+      localStorage.setItem(`like_${currentVideo.id}`, newStatus);
+
+      const btn = document.getElementById('likeBtn');
+      btn.classList.toggle('liked', newStatus);
+      document.getElementById('activeLikeCount').innerText = newStatus ? (currentVideo.likes + 1) : currentVideo.likes;
+    }
+
+    function toggleSub() {
+      const btn = document.getElementById('subBtn');
+      if (btn.classList.contains('subscribed')) {
+        btn.classList.remove('subscribed');
+        btn.innerText = 'Subscribe';
+      } else {
+        btn.classList.add('subscribed');
+        btn.innerText = 'Subscribed ✓';
+      }
+    }
+
+    function backToFeed() {
+      switchTab('feed');
+      document.getElementById('backBtn').style.display = 'none';
+      if (videoPlayer) videoPlayer.pause();
+    }
+
+    // --- TAB SWITCHER ---
+    function switchTab(t) {
+      document.getElementById('feed-screen').style.display = t === 'feed' ? 'block' : 'none';
+      document.getElementById('watch-screen').style.display = t === 'watch' ? 'block' : 'none';
+      document.getElementById('chat-screen').style.display = t === 'chat' ? 'flex' : 'none';
+
+      document.getElementById('nav-home').classList.toggle('active', t === 'feed');
+      document.getElementById('nav-watch').classList.toggle('active', t === 'watch');
+      document.getElementById('nav-chat').classList.toggle('active', t === 'chat');
+
+      if (t === 'feed') document.getElementById('backBtn').style.display = 'none';
+      if (t === 'watch') document.getElementById('backBtn').style.display = 'flex';
+    }
+
+    // --- ZINGRA E2EE CHAT LOGIC ---
+    const socket = io();
+    let sharedKey;
+    const roomId = 'zing-global';
+
+    async function initCrypto() {
+      sharedKey = await window.crypto.subtle.importKey(
+        "raw",
+        new TextEncoder().encode("12345678901234567890123456789012"),
+        { name: "AES-GCM" },
+        false,
+        ["encrypt", "decrypt"]
+      );
+      loadSavedChats();
+    }
+    initCrypto();
+
+    function loadSavedChats() {
+      const saved = JSON.parse(localStorage.getItem(`zingra_chats_${roomId}`) || '[]');
+      saved.forEach(m => renderBubble(m.text, m.type, m.time));
+    }
+
+    async function sendMsg() {
+      const input = document.getElementById('msgInput');
+      const text = input.value.trim();
+      if (!text) return;
+
+      const iv = window.crypto.getRandomValues(new Uint8Array(12));
+      const encoded = new TextEncoder().encode(text);
+      const cipher = await window.crypto.subtle.encrypt({ name: "AES-GCM", iv }, sharedKey, encoded);
+
+      const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      const payload = {
+        cipher: btoa(String.fromCharCode(...new Uint8Array(cipher))),
+        iv: btoa(String.fromCharCode(...new Uint8Array(iv))),
+        time
+      };
+
+      socket.emit('encrypted-message', payload);
+      renderBubble(text, 'sent', time);
+
+      const saved = JSON.parse(localStorage.getItem(`zingra_chats_${roomId}`) || '[]');
+      saved.push({ text, type: 'sent', time });
+      localStorage.setItem(`zingra_chats_${roomId}`, JSON.stringify(saved));
+      input.value = '';
+    }
+
+    socket.on('encrypted-message', async (data) => {
+      const cipherBytes = Uint8Array.from(atob(data.cipher), c => c.charCodeAt(0));
+      const ivBytes = Uint8Array.from(atob(data.iv), c => c.charCodeAt(0));
+      const dec = await window.crypto.subtle.decrypt({ name: "AES-GCM", iv: ivBytes }, sharedKey, cipherBytes);
+      const text = new TextDecoder().decode(dec);
+
+      renderBubble(text, 'received', data.time);
+      const saved = JSON.parse(localStorage.getItem(`zingra_chats_${roomId}`) || '[]');
+      saved.push({ text, type: 'received', time: data.time });
+      localStorage.setItem(`zingra_chats_${roomId}`, JSON.stringify(saved));
+    });
+
+    function renderBubble(text, type, time) {
+      const box = document.getElementById('chatsContainer');
+      const div = document.createElement('div');
+      div.className = `bubble ${type}`;
+      div.innerHTML = `<div>${text}</div><div class="time-tick">${time} ${type === 'sent' ? '✓✓' : ''}</div>`;
+      box.appendChild(div);
+      box.scrollTop = box.scrollHeight;
+    }
+
+    // Initialize
+    renderFeed();
+  </script>
+</body>
+</html>

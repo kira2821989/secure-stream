@@ -2,47 +2,47 @@ let myUsername = localStorage.getItem('zingra_my_username') || ("user" + Math.fl
 localStorage.setItem('zingra_my_username', myUsername);
 document.getElementById('myUsernameDisplay').innerText = "@" + myUsername;
 
+const socket = io();
+
+// Page khulte hi apna personal inbox register karna
+socket.emit('register-user', myUsername);
+
 function changeMyUsername() {
-  const newU = prompt("Naya Username likho:", myUsername);
+  const newU = prompt("Naya Username likho (e.g. arjun):", myUsername);
   if (newU && newU.trim()) {
     myUsername = newU.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
     localStorage.setItem('zingra_my_username', myUsername);
     document.getElementById('myUsernameDisplay').innerText = "@" + myUsername;
-    updateActiveRoom();
+    socket.emit('register-user', myUsername);
   }
 }
 
 const urlParams = new URLSearchParams(window.location.search);
 let partnerUsername = urlParams.get('chat') || localStorage.getItem('zingra_active_partner') || '';
-let currentRoomId = '';
 
-const socket = io();
+if (partnerUsername) {
+  setPartner(partnerUsername);
+}
 
-function updateActiveRoom() {
-  if (!partnerUsername) {
-    document.getElementById('activePartnerText').innerText = "🔒 Dost ka username connect karein";
-    return;
-  }
-  const sorted = [myUsername, partnerUsername].sort();
-  currentRoomId = `room_${sorted[0]}_${sorted[1]}`;
+function setPartner(name) {
+  partnerUsername = name.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+  localStorage.setItem('zingra_active_partner', partnerUsername);
   document.getElementById('activePartnerText').innerText = `🔒 Chatting with: @${partnerUsername}`;
   document.getElementById('partnerInput').value = partnerUsername;
-  localStorage.setItem('zingra_active_partner', partnerUsername);
-  socket.emit('join-room', currentRoomId);
   loadSavedChats();
 }
 
 function connectToPartnerManual() {
-  const val = document.getElementById('partnerInput').value.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+  const val = document.getElementById('partnerInput').value.trim();
   if (!val || val === myUsername) return alert("Valid dost ka username likhein!");
-  partnerUsername = val;
-  updateActiveRoom();
+  setPartner(val);
+  alert(`@${val} ke sath chat connect ho gayi!`);
 }
 
 function shareMyChatLink() {
   const link = `${window.location.origin}/?chat=${myUsername}`;
   navigator.clipboard.writeText(link);
-  alert("Link copied! WhatsApp par bhej do:\n" + link);
+  alert("Link Copied! Dost ko bhejo:\n" + link);
 }
 
 const allVideos = [
@@ -129,56 +129,79 @@ function switchTab(t) {
   if (t === 'watch') document.getElementById('backBtn').style.display = 'flex';
 }
 
+// --- E2EE DIRECT MESSAGING ENGINE ---
 let sharedKey;
 async function initCrypto() {
   sharedKey = await window.crypto.subtle.importKey(
     "raw", new TextEncoder().encode("12345678901234567890123456789012"),
     { name: "AES-GCM" }, false, ["encrypt", "decrypt"]
   );
-  updateActiveRoom();
 }
 initCrypto();
+
+function getChatKey() {
+  if (!partnerUsername) return null;
+  const pair = [myUsername, partnerUsername].sort().join('_');
+  return `zingra_chat_${pair}`;
+}
 
 function loadSavedChats() {
   const box = document.getElementById('chatsContainer');
   box.innerHTML = '';
-  if (!currentRoomId) return;
-  const saved = JSON.parse(localStorage.getItem(`zingra_${currentRoomId}`) || '[]');
+  const key = getChatKey();
+  if (!key) return;
+  const saved = JSON.parse(localStorage.getItem(key) || '[]');
   saved.forEach(m => renderBubble(m.text, m.type, m.time));
 }
 
 async function sendMsg() {
-  if (!partnerUsername) return alert("Pehle dost ka username likho!");
+  if (!partnerUsername) return alert("Pehle dost ka username connect karein!");
   const input = document.getElementById('msgInput');
   const text = input.value.trim();
   if (!text) return;
+
   const iv = window.crypto.getRandomValues(new Uint8Array(12));
   const cipher = await window.crypto.subtle.encrypt({ name: "AES-GCM", iv }, sharedKey, new TextEncoder().encode(text));
   const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
   const payload = {
+    to: partnerUsername,
+    from: myUsername,
     cipher: btoa(String.fromCharCode(...new Uint8Array(cipher))),
     iv: btoa(String.fromCharCode(...new Uint8Array(iv))),
     time
   };
-  socket.emit('encrypted-message', payload);
+
+  // Direct send to partner's inbox
+  socket.emit('send-message', payload);
   renderBubble(text, 'sent', time);
-  const saved = JSON.parse(localStorage.getItem(`zingra_${currentRoomId}`) || '[]');
+
+  const key = getChatKey();
+  const saved = JSON.parse(localStorage.getItem(key) || '[]');
   saved.push({ text, type: 'sent', time });
-  localStorage.setItem(`zingra_${currentRoomId}`, JSON.stringify(saved));
+  localStorage.setItem(key, JSON.stringify(saved));
   input.value = '';
 }
 
-socket.on('encrypted-message', async (data) => {
+// Inbox me naya message receive hona
+socket.on('receive-message', async (data) => {
+  // Agar kisi aur se chat khuli thi, toh automatic sender ko partner bana do
+  if (partnerUsername !== data.from) {
+    setPartner(data.from);
+  }
+
   const dec = await window.crypto.subtle.decrypt(
     { name: "AES-GCM", iv: Uint8Array.from(atob(data.iv), c => c.charCodeAt(0)) },
     sharedKey,
     Uint8Array.from(atob(data.cipher), c => c.charCodeAt(0))
   );
   const text = new TextDecoder().decode(dec);
+
   renderBubble(text, 'received', data.time);
-  const saved = JSON.parse(localStorage.getItem(`zingra_${currentRoomId}`) || '[]');
+  const key = getChatKey();
+  const saved = JSON.parse(localStorage.getItem(key) || '[]');
   saved.push({ text, type: 'received', time: data.time });
-  localStorage.setItem(`zingra_${currentRoomId}`, JSON.stringify(saved));
+  localStorage.setItem(key, JSON.stringify(saved));
 });
 
 function renderBubble(text, type, time) {

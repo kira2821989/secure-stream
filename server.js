@@ -9,26 +9,30 @@ const io = new Server(server, { cors: { origin: "*" } });
 app.use(express.static('public'));
 
 io.on('connection', (socket) => {
-  socket.on('join-room', (roomId) => {
-    socket.join(roomId);
-    socket.roomId = roomId;
+  // Har user ka apna private inbox register hota hai
+  socket.on('register-user', (username) => {
+    socket.join(username);
+    socket.username = username;
+    console.log(`User connected to Inbox: @${username}`);
   });
 
-  socket.on('encrypted-message', (data) => {
-    if (socket.roomId) {
-      socket.to(socket.roomId).emit('encrypted-message', data);
+  // Direct 1-on-1 message delivery
+  socket.on('send-message', (data) => {
+    // data = { to, from, cipher, iv, time }
+    if (data.to) {
+      io.to(data.to).emit('receive-message', data);
     }
   });
 
+  // Watch Party video sync
   socket.on('sync-video', (data) => {
-    if (socket.roomId) {
-      socket.to(socket.roomId).emit('sync-video', data);
+    if (data.to) {
+      io.to(data.to).emit('sync-video', data);
     }
   });
 });
 
-// Render cloud ke liye dynamic PORT
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`⚡ Zingra Server Live on port ${PORT}`);
+  console.log(`⚡ Zingra Live on port ${PORT}`);
 });

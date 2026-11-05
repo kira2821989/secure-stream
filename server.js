@@ -8,24 +8,36 @@ const io = new Server(server, { cors: { origin: "*" } });
 
 app.use(express.static('public'));
 
-// Active users tracking (username -> { socketId, ghostMode })
-const activeUsers = new Map();
+// Registered users database: username -> { pin, socketId, ghostMode }
+const registeredUsers = new Map();
 
 io.on('connection', (socket) => {
-  // User apna inbox register karta hai
-  socket.on('register-user', ({ username, ghostMode }) => {
+  // USERNAME CLAIM & PIN VERIFICATION
+  socket.on('register-user', ({ username, pin, ghostMode }) => {
+    if (!username || !pin) return;
+
+    const existing = registeredUsers.get(username);
+
+    // Agar username pehle se registered hai aur PIN match nahi karta
+    if (existing && existing.pin !== pin) {
+      socket.emit('auth-error', `❌ '@${username}' pehle se kisi aur ka hai! Sahi PIN dalein ya naya naam chunein.`);
+      return;
+    }
+
+    // Username successfully verified/registered
     socket.join(username);
     socket.username = username;
-    activeUsers.set(username, { socketId: socket.id, ghostMode: !!ghostMode });
+    registeredUsers.set(username, { pin, socketId: socket.id, ghostMode: !!ghostMode });
+    socket.emit('auth-success', { username });
+    console.log(`🔐 Verified User: @${username}`);
   });
 
-  // PRIVACY RULE: Server sirf unhi doston ka status batayega jo user ne maange hain
+  // Friends status check
   socket.on('check-friends-status', (friendsList) => {
     if (!Array.isArray(friendsList)) return;
     const onlineFriends = friendsList.filter(f => {
-      const user = activeUsers.get(f);
-      // Agar user online hai AUR usne Ghost Mode ON nahi kiya hai
-      return user && !user.ghostMode;
+      const u = registeredUsers.get(f);
+      return u && !u.ghostMode;
     });
     socket.emit('friends-status-response', onlineFriends);
   });
@@ -37,7 +49,7 @@ io.on('connection', (socket) => {
     }
   });
 
-  // Watch Party video sync
+  // Watch party video sync
   socket.on('sync-video', (data) => {
     if (data.to) {
       io.to(data.to).emit('sync-video', data);
@@ -46,7 +58,8 @@ io.on('connection', (socket) => {
 
   socket.on('disconnect', () => {
     if (socket.username) {
-      activeUsers.delete(socket.username);
+      const u = registeredUsers.get(socket.username);
+      if (u) u.socketId = null; // Mark offline
     }
   });
 });

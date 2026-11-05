@@ -1,28 +1,66 @@
 let myUsername = localStorage.getItem('zingra_my_username') || ("user" + Math.floor(100 + Math.random() * 900));
+let myPin = localStorage.getItem('zingra_my_pin') || "1234";
+
 localStorage.setItem('zingra_my_username', myUsername);
+localStorage.setItem('zingra_my_pin', myPin);
 document.getElementById('myUsernameDisplay').innerText = "@" + myUsername;
 
 let isGhostMode = localStorage.getItem('zingra_ghost_mode') === 'true';
 
 const socket = io();
 
+function registerWithServer() {
+  socket.emit('register-user', { username: myUsername, pin: myPin, ghostMode: isGhostMode });
+}
+
 socket.on('connect', () => {
-  socket.emit('register-user', { username: myUsername, ghostMode: isGhostMode });
+  registerWithServer();
   pollFriendsStatus();
   updateActiveUI();
 });
 
-// GHOST MODE TOGGLE (Aapka status sabse chup jayega)
+// AUTH ERROR: Agar kisi aur ka username churane ki koshish ki
+socket.on('auth-error', (msg) => {
+  alert(msg);
+  changeMyUsername();
+});
+
+socket.on('auth-success', ({ username }) => {
+  document.getElementById('myUsernameDisplay').innerText = "@" + username;
+});
+
+// USERNAME + PIN SETTING ENGINE
+function changeMyUsername() {
+  const newU = prompt("Apna Naya Username likhein (bina space ke):", myUsername);
+  if (!newU || !newU.trim()) return;
+
+  const cleanName = newU.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+  const enteredPin = prompt(`'@${cleanName}' ke liye apna 4-Digit Secret PIN dalein:`, myPin);
+  if (!enteredPin || enteredPin.length < 4) {
+    alert("PIN kam se kam 4 number ka hona chahiye!");
+    return;
+  }
+
+  myUsername = cleanName;
+  myPin = enteredPin.trim();
+
+  localStorage.setItem('zingra_my_username', myUsername);
+  localStorage.setItem('zingra_my_pin', myPin);
+
+  registerWithServer();
+  updateActiveUI();
+}
+
 function toggleGhostMode() {
   isGhostMode = !isGhostMode;
   localStorage.setItem('zingra_ghost_mode', isGhostMode);
-  socket.emit('register-user', { username: myUsername, ghostMode: isGhostMode });
+  registerWithServer();
   renderFriendsBar([]);
-  alert(isGhostMode ? "👻 Ghost Mode Active! Ab doston ko bhi aap offline dikhoge." : "Visible Mode Active! Doston ko aapka green dot dikhega.");
+  alert(isGhostMode ? "👻 Ghost Mode Active! Doston ko aap offline dikhoge." : "Visible Mode Active!");
   pollFriendsStatus();
 }
 
-// FRIENDS ONLY ENGINE (Sirf Apne Doston Ka Status)
+// FRIENDS SYSTEM
 function getFriendsList() {
   return JSON.parse(localStorage.getItem('zingra_friends_list') || '[]');
 }
@@ -50,8 +88,6 @@ function pollFriendsStatus() {
     renderFriendsBar([]);
   }
 }
-
-// Har 10 second me sirf doston ka status check karna
 setInterval(pollFriendsStatus, 10000);
 
 socket.on('friends-status-response', (onlineFriends) => {
@@ -76,7 +112,7 @@ function renderFriendsBar(onlineFriends) {
   } else if (onlineFriends.length === 0) {
     content = `<span style="font-size:11px; color:#94a3b8;">Dost offline hain (${friends.length} contacts)</span>`;
   } else {
-    content = `<span style="font-size:11px; color:#10b981; font-weight:bold;">Online Friends:</span>` + onlineFriends.map(f => `
+    content = `<span style="font-size:11px; color:#10b981; font-weight:bold;">Online:</span>` + onlineFriends.map(f => `
       <button onclick="setPartner('${f}')" style="background:${f === partnerUsername ? '#2563eb' : '#1e293b'}; color:#fff; border:1px solid ${f === partnerUsername ? '#38bdf8' : '#10b981'}; padding:3px 10px; border-radius:14px; font-size:11px; cursor:pointer; display:flex; align-items:center; gap:4px;">
         <span style="color:#10b981;">●</span> @${f}
       </button>
@@ -91,17 +127,6 @@ function renderFriendsBar(onlineFriends) {
   `;
 }
 
-function changeMyUsername() {
-  const newU = prompt("Naya Username likhein:", myUsername);
-  if (newU && newU.trim()) {
-    myUsername = newU.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
-    localStorage.setItem('zingra_my_username', myUsername);
-    document.getElementById('myUsernameDisplay').innerText = "@" + myUsername;
-    socket.emit('register-user', { username: myUsername, ghostMode: isGhostMode });
-    updateActiveUI();
-  }
-}
-
 const urlParams = new URLSearchParams(window.location.search);
 let partnerUsername = urlParams.get('chat') || localStorage.getItem('zingra_active_partner') || '';
 
@@ -113,7 +138,6 @@ function setPartner(name) {
   partnerUsername = name.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
   localStorage.setItem('zingra_active_partner', partnerUsername);
 
-  // Auto add to contacts
   let friends = getFriendsList();
   if (!friends.includes(partnerUsername)) {
     friends.push(partnerUsername);
@@ -131,7 +155,7 @@ function updateActiveUI() {
     statusEl.innerHTML = `🔒 Chatting with: <b style="color:#38bdf8;">@${partnerUsername}</b>`;
     document.getElementById('partnerInput').value = partnerUsername;
   } else {
-    statusEl.innerHTML = `🔒 Private Mode • Apne dost ko add karein`;
+    statusEl.innerHTML = `🔒 Private Mode • Dost ka naam likhein`;
   }
 }
 

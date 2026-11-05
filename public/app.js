@@ -3,7 +3,9 @@ let myPin = localStorage.getItem('zingra_my_pin') || "1234";
 
 localStorage.setItem('zingra_my_username', myUsername);
 localStorage.setItem('zingra_my_pin', myPin);
-document.getElementById('myUsernameDisplay').innerText = "@" + myUsername;
+
+document.getElementById('myUsernameInput').value = myUsername;
+document.getElementById('myPinInput').value = myPin;
 
 let isGhostMode = localStorage.getItem('zingra_ghost_mode') === 'true';
 
@@ -19,30 +21,22 @@ socket.on('connect', () => {
   updateActiveUI();
 });
 
-// AUTH RESPONSE
+// AUTH RESPONSE (AGAR KISI AUR KA CHURANE KI KOSHISH KI)
 socket.on('auth-error', (msg) => {
   alert(msg);
-  openAuthModal();
+  document.getElementById('lockStatusBadge').innerText = "❌ PIN Mismatch";
+  document.getElementById('lockStatusBadge').style.color = "#ef4444";
 });
 
 socket.on('auth-success', ({ username }) => {
-  document.getElementById('myUsernameDisplay').innerText = "@" + username;
+  document.getElementById('lockStatusBadge').innerText = "● Locked & Verified";
+  document.getElementById('lockStatusBadge').style.color = "#10b981";
 });
 
-// MODAL OPEN / CLOSE LOGIC
-function openAuthModal() {
-  document.getElementById('modalUsernameInput').value = myUsername;
-  document.getElementById('modalPinInput').value = myPin;
-  document.getElementById('authModal').style.display = 'flex';
-}
-
-function closeAuthModal() {
-  document.getElementById('authModal').style.display = 'none';
-}
-
-function saveAuthModal() {
-  const u = document.getElementById('modalUsernameInput').value.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
-  const p = document.getElementById('modalPinInput').value.trim();
+// SAVE USERNAME & PIN (Direct in-page button)
+function saveMyIdentity() {
+  const u = document.getElementById('myUsernameInput').value.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+  const p = document.getElementById('myPinInput').value.trim();
 
   if (!u) return alert("Username likhein!");
   if (!p || p.length < 4) return alert("PIN kam se kam 4 number ka hona chahiye!");
@@ -55,7 +49,7 @@ function saveAuthModal() {
 
   registerWithServer();
   updateActiveUI();
-  closeAuthModal();
+  alert(`@${myUsername} account PIN: ${myPin} ke sath lock kar diya gaya hai!`);
 }
 
 function toggleGhostMode() {

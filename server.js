@@ -8,46 +8,50 @@ const io = new Server(server, { cors: { origin: "*" } });
 
 app.use(express.static('public'));
 
-// Online users ki active list
+// Active users tracking (username -> { socketId, ghostMode })
 const activeUsers = new Map();
 
 io.on('connection', (socket) => {
-  // User online aaya
-  socket.on('register-user', (username) => {
+  // User apna inbox register karta hai
+  socket.on('register-user', ({ username, ghostMode }) => {
     socket.join(username);
     socket.username = username;
-    activeUsers.set(username, socket.id);
-    
-    // Sabhi ko updated online list bhejo
-    io.emit('online-users-list', Array.from(activeUsers.keys()));
-    console.log(`🟢 Online: @${username}`);
+    activeUsers.set(username, { socketId: socket.id, ghostMode: !!ghostMode });
   });
 
-  // Direct 1-on-1 messaging
+  // PRIVACY RULE: Server sirf unhi doston ka status batayega jo user ne maange hain
+  socket.on('check-friends-status', (friendsList) => {
+    if (!Array.isArray(friendsList)) return;
+    const onlineFriends = friendsList.filter(f => {
+      const user = activeUsers.get(f);
+      // Agar user online hai AUR usne Ghost Mode ON nahi kiya hai
+      return user && !user.ghostMode;
+    });
+    socket.emit('friends-status-response', onlineFriends);
+  });
+
+  // Direct 1-on-1 private messaging
   socket.on('send-message', (data) => {
     if (data.to) {
       io.to(data.to).emit('receive-message', data);
     }
   });
 
-  // Watch party sync
+  // Watch Party video sync
   socket.on('sync-video', (data) => {
     if (data.to) {
       io.to(data.to).emit('sync-video', data);
     }
   });
 
-  // User ne tab band kiya / disconnect hua
   socket.on('disconnect', () => {
     if (socket.username) {
       activeUsers.delete(socket.username);
-      io.emit('online-users-list', Array.from(activeUsers.keys()));
-      console.log(`🔴 Offline: @${socket.username}`);
     }
   });
 });
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`⚡ Zingra Live on port ${PORT}`);
+  console.log(`⚡ Zingra Private Server on port ${PORT}`);
 });

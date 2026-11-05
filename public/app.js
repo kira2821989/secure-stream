@@ -2,50 +2,102 @@ let myUsername = localStorage.getItem('zingra_my_username') || ("user" + Math.fl
 localStorage.setItem('zingra_my_username', myUsername);
 document.getElementById('myUsernameDisplay').innerText = "@" + myUsername;
 
+let isGhostMode = localStorage.getItem('zingra_ghost_mode') === 'true';
+
 const socket = io();
 
 socket.on('connect', () => {
-  socket.emit('register-user', myUsername);
+  socket.emit('register-user', { username: myUsername, ghostMode: isGhostMode });
+  pollFriendsStatus();
   updateActiveUI();
 });
 
-// ONLINE USERS LIST ENGINE
-socket.on('online-users-list', (users) => {
-  renderOnlineBar(users);
+// GHOST MODE TOGGLE (Aapka status sabse chup jayega)
+function toggleGhostMode() {
+  isGhostMode = !isGhostMode;
+  localStorage.setItem('zingra_ghost_mode', isGhostMode);
+  socket.emit('register-user', { username: myUsername, ghostMode: isGhostMode });
+  renderFriendsBar([]);
+  alert(isGhostMode ? "👻 Ghost Mode Active! Ab doston ko bhi aap offline dikhoge." : "Visible Mode Active! Doston ko aapka green dot dikhega.");
+  pollFriendsStatus();
+}
+
+// FRIENDS ONLY ENGINE (Sirf Apne Doston Ka Status)
+function getFriendsList() {
+  return JSON.parse(localStorage.getItem('zingra_friends_list') || '[]');
+}
+
+function addFriendManual() {
+  const input = document.getElementById('partnerInput');
+  const name = input.value.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+  if (!name) return alert("Dost ka username likhein!");
+  if (name === myUsername) return alert("Aap khud ko add nahi kar sakte!");
+
+  let friends = getFriendsList();
+  if (!friends.includes(name)) {
+    friends.push(name);
+    localStorage.setItem('zingra_friends_list', JSON.stringify(friends));
+  }
+  setPartner(name);
+  pollFriendsStatus();
+}
+
+function pollFriendsStatus() {
+  const friends = getFriendsList();
+  if (friends.length > 0) {
+    socket.emit('check-friends-status', friends);
+  } else {
+    renderFriendsBar([]);
+  }
+}
+
+// Har 10 second me sirf doston ka status check karna
+setInterval(pollFriendsStatus, 10000);
+
+socket.on('friends-status-response', (onlineFriends) => {
+  renderFriendsBar(onlineFriends);
 });
 
-function renderOnlineBar(users) {
+function renderFriendsBar(onlineFriends) {
   let bar = document.getElementById('onlineUsersBar');
   if (!bar) {
     bar = document.createElement('div');
     bar.id = 'onlineUsersBar';
-    bar.style.cssText = "background: #0d1522; border-bottom: 1px solid #1f2937; padding: 8px 12px; display: flex; align-items: center; gap: 8px; overflow-x: auto; scrollbar-width: none;";
+    bar.style.cssText = "background: #0d1522; border-bottom: 1px solid #1f2937; padding: 8px 12px; display: flex; align-items: center; justify-content: space-between; gap: 8px; overflow-x: auto; scrollbar-width: none;";
     const pBar = document.querySelector('.user-profile-bar');
     if (pBar) pBar.parentNode.insertBefore(bar, pBar);
   }
 
-  // Khud ka naam filter karke baaki online users dikhana
-  const others = users.filter(u => u !== myUsername);
+  const friends = getFriendsList();
+  let content = '';
 
-  if (others.length === 0) {
-    bar.innerHTML = `<span style="font-size:11px; color:#64748b; white-space:nowrap;">🟢 Abhi sirf aap online hain. (Wait karein...)</span>`;
-    return;
+  if (friends.length === 0) {
+    content = `<span style="font-size:11px; color:#64748b;">🔒 No contacts added yet. Add a friend below!</span>`;
+  } else if (onlineFriends.length === 0) {
+    content = `<span style="font-size:11px; color:#94a3b8;">Dost offline hain (${friends.length} contacts)</span>`;
+  } else {
+    content = `<span style="font-size:11px; color:#10b981; font-weight:bold;">Online Friends:</span>` + onlineFriends.map(f => `
+      <button onclick="setPartner('${f}')" style="background:${f === partnerUsername ? '#2563eb' : '#1e293b'}; color:#fff; border:1px solid ${f === partnerUsername ? '#38bdf8' : '#10b981'}; padding:3px 10px; border-radius:14px; font-size:11px; cursor:pointer; display:flex; align-items:center; gap:4px;">
+        <span style="color:#10b981;">●</span> @${f}
+      </button>
+    `).join('');
   }
 
-  bar.innerHTML = `<span style="font-size:11px; color:#10b981; font-weight:bold; white-space:nowrap;">🟢 Online Now (${others.length}):</span>` + others.map(u => `
-    <button onclick="setPartner('${u}')" style="background:${u === partnerUsername ? '#2563eb' : '#1e293b'}; color:#fff; border:1px solid ${u === partnerUsername ? '#38bdf8' : '#334155'}; padding:4px 10px; border-radius:14px; font-size:11px; font-weight:bold; cursor:pointer; white-space:nowrap; display:flex; align-items:center; gap:4px;">
-      <span style="color:#10b981;">●</span> @${u}
+  bar.innerHTML = `
+    <div style="display:flex; align-items:center; gap:8px;">${content}</div>
+    <button onclick="toggleGhostMode()" style="background:${isGhostMode ? '#4b5563' : '#1f2937'}; color:#fff; border:1px solid #374151; padding:3px 8px; border-radius:10px; font-size:11px; cursor:pointer; flex-shrink:0;">
+      ${isGhostMode ? '👻 Ghost: ON' : '👁️ Ghost: OFF'}
     </button>
-  `).join('');
+  `;
 }
 
 function changeMyUsername() {
-  const newU = prompt("Apna Naya Username likhein:", myUsername);
+  const newU = prompt("Naya Username likhein:", myUsername);
   if (newU && newU.trim()) {
     myUsername = newU.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
     localStorage.setItem('zingra_my_username', myUsername);
     document.getElementById('myUsernameDisplay').innerText = "@" + myUsername;
-    socket.emit('register-user', myUsername);
+    socket.emit('register-user', { username: myUsername, ghostMode: isGhostMode });
     updateActiveUI();
   }
 }
@@ -60,8 +112,17 @@ if (urlParams.has('chat')) {
 function setPartner(name) {
   partnerUsername = name.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
   localStorage.setItem('zingra_active_partner', partnerUsername);
+
+  // Auto add to contacts
+  let friends = getFriendsList();
+  if (!friends.includes(partnerUsername)) {
+    friends.push(partnerUsername);
+    localStorage.setItem('zingra_friends_list', JSON.stringify(friends));
+  }
+
   updateActiveUI();
   loadSavedChats();
+  pollFriendsStatus();
 }
 
 function updateActiveUI() {
@@ -70,21 +131,18 @@ function updateActiveUI() {
     statusEl.innerHTML = `🔒 Chatting with: <b style="color:#38bdf8;">@${partnerUsername}</b>`;
     document.getElementById('partnerInput').value = partnerUsername;
   } else {
-    statusEl.innerHTML = `🟢 Online as @${myUsername} • Kisi online user par tap karein`;
+    statusEl.innerHTML = `🔒 Private Mode • Apne dost ko add karein`;
   }
 }
 
 function connectToPartnerManual() {
-  const val = document.getElementById('partnerInput').value.trim();
-  if (!val) return alert("Dost ka username likhein!");
-  if (val.toLowerCase() === myUsername.toLowerCase()) return alert("Aap apne aap se chat nahi kar sakte!");
-  setPartner(val);
+  addFriendManual();
 }
 
 function shareMyChatLink() {
   const link = `${window.location.origin}/?chat=${myUsername}`;
   navigator.clipboard.writeText(link);
-  alert("Link Copied! Dost ko bhejo:\n" + link);
+  alert("Link Copied! Apne dost ko bhejo:\n" + link);
 }
 
 // --- E2EE DIRECT MESSAGING ---
@@ -115,7 +173,7 @@ function loadSavedChats() {
 }
 
 async function sendMsg() {
-  if (!partnerUsername) return alert("Pehle upar se kisi Online user par tap karein!");
+  if (!partnerUsername) return alert("Pehle dost ka username likhein aur Chat dabayein!");
   const input = document.getElementById('msgInput');
   const text = input.value.trim();
   if (!text) return;

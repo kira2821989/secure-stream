@@ -4,11 +4,12 @@ localStorage.setItem('zingra_my_username', myUsername);
 
 document.getElementById('myUsernameInput').value = myUsername;
 
+// DIRECT FAST SOCKET
 const socket = io({ transports: ['websocket', 'polling'] });
 
 socket.on('connect', () => {
   socket.emit('register-user', { username: myUsername });
-  document.getElementById('lockStatusBadge').innerText = "🟢 Connected (Fast)";
+  document.getElementById('lockStatusBadge').innerText = "🟢 Live Connected";
   document.getElementById('lockStatusBadge').style.color = "#10b981";
   updateActiveUI();
 });
@@ -26,7 +27,7 @@ function saveMyIdentity() {
   localStorage.setItem('zingra_my_username', myUsername);
   socket.emit('register-user', { username: myUsername });
   updateActiveUI();
-  alert(`Aapka username: @${myUsername} save ho gaya!`);
+  alert(`Username: @${myUsername} saved!`);
 }
 
 const urlParams = new URLSearchParams(window.location.search);
@@ -49,7 +50,7 @@ function updateActiveUI() {
     statusEl.innerHTML = `🔒 Chatting with: <b style="color:#38bdf8;">@${partnerUsername}</b>`;
     document.getElementById('partnerInput').value = partnerUsername;
   } else {
-    statusEl.innerHTML = `🔒 Dost ka username likhkar 'Chat' dabayein`;
+    statusEl.innerHTML = `🔒 Dost ka username likhein aur Chat dabayein`;
   }
 }
 
@@ -90,10 +91,10 @@ function loadSavedChats() {
   const key = getChatKey();
   if (!key) return;
   const saved = JSON.parse(localStorage.getItem(key) || '[]');
-  saved.forEach(m => renderBubble(m.text, m.type, m.time, m.status, m.id));
+  saved.forEach(m => renderBubble(m.text, m.type, m.time, m.id));
 }
 
-// SEND MESSAGE
+// SEND MESSAGE (INSTANT)
 async function sendMsg() {
   if (!partnerUsername) return alert("Pehle dost ka username likhein aur Chat dabayein!");
   const input = document.getElementById('msgInput');
@@ -116,31 +117,20 @@ async function sendMsg() {
   };
 
   socket.emit('send-message', payload);
-  renderBubble(text, 'sent', time, 'sending', msgId);
+  renderBubble(text, 'sent', time, msgId);
 
   const key = getChatKey();
   const saved = JSON.parse(localStorage.getItem(key) || '[]');
-  saved.push({ id: msgId, text, type: 'sent', time, status: 'sending' });
+  saved.push({ id: msgId, text, type: 'sent', time });
   localStorage.setItem(key, JSON.stringify(saved));
   input.value = '';
 }
 
-// DELIVERY STATUS (Single tick -> Double tick)
-socket.on('message-status', ({ id, status, to }) => {
-  const tickEl = document.getElementById(`tick_${id}`);
-  if (!tickEl) return;
-
-  if (status === 'delivered') {
-    tickEl.innerHTML = `✓✓`;
-    tickEl.style.color = `#38bdf8`;
-  } else if (status === 'queued') {
-    tickEl.innerHTML = `✓ Sent (Waiting for @${to})`;
-    tickEl.style.color = `#94a3b8`;
-  }
-});
-
-// INCOMING MESSAGE (Live ya Queued delivery)
+// INCOMING MESSAGE (INSTANT REAL-TIME DISPLAY)
 socket.on('receive-message', async (data) => {
+  // Duplicate check
+  if (document.getElementById(`bubble_${data.id}`)) return;
+
   await initCrypto();
   if (partnerUsername !== data.from) {
     setPartner(data.from);
@@ -154,10 +144,11 @@ socket.on('receive-message', async (data) => {
     );
     const text = new TextDecoder().decode(dec);
 
-    renderBubble(text, 'received', data.time, 'delivered', data.id);
+    renderBubble(text, 'received', data.time, data.id);
+    
     const key = getChatKey();
     const saved = JSON.parse(localStorage.getItem(key) || '[]');
-    saved.push({ id: data.id, text, type: 'received', time: data.time, status: 'delivered' });
+    saved.push({ id: data.id, text, type: 'received', time: data.time });
     localStorage.setItem(key, JSON.stringify(saved));
     
     switchTab('chat');
@@ -166,21 +157,17 @@ socket.on('receive-message', async (data) => {
   }
 });
 
-function renderBubble(text, type, time, status, id) {
+function renderBubble(text, type, time, id) {
   const box = document.getElementById('chatsContainer');
   const div = document.createElement('div');
+  div.id = `bubble_${id}`;
   div.className = `bubble ${type}`;
-  
-  let statusText = '';
-  if (type === 'sent') {
-    statusText = status === 'delivered' ? '✓✓' : '✓';
-  }
 
   div.innerHTML = `
     <div>${text}</div>
     <div style="display:flex; justify-content:flex-end; gap:4px; font-size:9px; opacity:0.8; margin-top:3px;">
       <span>${time}</span>
-      <span id="tick_${id}" style="color:${status === 'delivered' ? '#38bdf8' : '#aaa'}; font-weight:bold;">${statusText}</span>
+      <span style="color:#38bdf8; font-weight:bold;">${type === 'sent' ? '✓✓' : ''}</span>
     </div>
   `;
   box.appendChild(div);

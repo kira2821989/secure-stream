@@ -4,13 +4,41 @@ document.getElementById('myUsernameDisplay').innerText = "@" + myUsername;
 
 const socket = io();
 
-// Guaranteed Connection & Registration
 socket.on('connect', () => {
   socket.emit('register-user', myUsername);
   updateActiveUI();
 });
 
-// App ke andar hi apna naam badalna
+// ONLINE USERS LIST ENGINE
+socket.on('online-users-list', (users) => {
+  renderOnlineBar(users);
+});
+
+function renderOnlineBar(users) {
+  let bar = document.getElementById('onlineUsersBar');
+  if (!bar) {
+    bar = document.createElement('div');
+    bar.id = 'onlineUsersBar';
+    bar.style.cssText = "background: #0d1522; border-bottom: 1px solid #1f2937; padding: 8px 12px; display: flex; align-items: center; gap: 8px; overflow-x: auto; scrollbar-width: none;";
+    const pBar = document.querySelector('.user-profile-bar');
+    if (pBar) pBar.parentNode.insertBefore(bar, pBar);
+  }
+
+  // Khud ka naam filter karke baaki online users dikhana
+  const others = users.filter(u => u !== myUsername);
+
+  if (others.length === 0) {
+    bar.innerHTML = `<span style="font-size:11px; color:#64748b; white-space:nowrap;">🟢 Abhi sirf aap online hain. (Wait karein...)</span>`;
+    return;
+  }
+
+  bar.innerHTML = `<span style="font-size:11px; color:#10b981; font-weight:bold; white-space:nowrap;">🟢 Online Now (${others.length}):</span>` + others.map(u => `
+    <button onclick="setPartner('${u}')" style="background:${u === partnerUsername ? '#2563eb' : '#1e293b'}; color:#fff; border:1px solid ${u === partnerUsername ? '#38bdf8' : '#334155'}; padding:4px 10px; border-radius:14px; font-size:11px; font-weight:bold; cursor:pointer; white-space:nowrap; display:flex; align-items:center; gap:4px;">
+      <span style="color:#10b981;">●</span> @${u}
+    </button>
+  `).join('');
+}
+
 function changeMyUsername() {
   const newU = prompt("Apna Naya Username likhein:", myUsername);
   if (newU && newU.trim()) {
@@ -22,19 +50,16 @@ function changeMyUsername() {
   }
 }
 
-// URL se sirf pehli baar read karna, fir URL clean kar dena
 const urlParams = new URLSearchParams(window.location.search);
 let partnerUsername = urlParams.get('chat') || localStorage.getItem('zingra_active_partner') || '';
 
 if (urlParams.has('chat')) {
-  // URL bar se ?chat= hata kar clean kar do
   window.history.replaceState({}, document.title, window.location.pathname);
 }
 
 function setPartner(name) {
   partnerUsername = name.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
   localStorage.setItem('zingra_active_partner', partnerUsername);
-  saveToRecentChats(partnerUsername);
   updateActiveUI();
   loadSavedChats();
 }
@@ -45,9 +70,8 @@ function updateActiveUI() {
     statusEl.innerHTML = `🔒 Chatting with: <b style="color:#38bdf8;">@${partnerUsername}</b>`;
     document.getElementById('partnerInput').value = partnerUsername;
   } else {
-    statusEl.innerHTML = `🟢 Online as @${myUsername} • Dost ka naam likhein`;
+    statusEl.innerHTML = `🟢 Online as @${myUsername} • Kisi online user par tap karein`;
   }
-  renderRecentChats();
 }
 
 function connectToPartnerManual() {
@@ -57,52 +81,10 @@ function connectToPartnerManual() {
   setPartner(val);
 }
 
-// RECENT CHATS LIST (WhatsApp style contacts)
-function saveToRecentChats(name) {
-  let recents = JSON.parse(localStorage.getItem('zingra_recents') || '[]');
-  if (!recents.includes(name)) {
-    recents.unshift(name);
-    if (recents.length > 5) recents.pop();
-    localStorage.setItem('zingra_recents', JSON.stringify(recents));
-  }
-}
-
-function renderRecentChats() {
-  let recents = JSON.parse(localStorage.getItem('zingra_recents') || '[]');
-  let container = document.getElementById('recentChatsList');
-  if (!container) {
-    container = document.createElement('div');
-    container.id = 'recentChatsList';
-    container.style.cssText = "display: flex; gap: 6px; padding: 6px 14px; background: #111827; overflow-x: auto; border-bottom: 1px solid #1f2937;";
-    const pBar = document.querySelector('.user-profile-bar');
-    if (pBar) pBar.parentNode.insertBefore(container, pBar.nextSibling);
-  }
-  if (recents.length === 0) {
-    container.innerHTML = `<span style="font-size:11px; color:#6b7280;">No recent chats</span>`;
-    return;
-  }
-  container.innerHTML = `<span style="font-size:11px; color:#94a3b8; align-self:center; margin-right:4px;">Recents:</span>` + recents.map(u => `
-    <button onclick="setPartner('${u}')" style="background:${u === partnerUsername ? '#2563eb' : '#1f2937'}; color:#fff; border:1px solid #374151; padding:3px 10px; border-radius:12px; font-size:11px; cursor:pointer;">
-      @${u}
-    </button>
-  `).join('');
-}
-
-// DIRECT WHATSAPP NATIVE SHARE
-async function shareMyChatLink() {
+function shareMyChatLink() {
   const link = `${window.location.origin}/?chat=${myUsername}`;
-  if (navigator.share) {
-    try {
-      await navigator.share({
-        title: 'Zingra Private Chat',
-        text: `Hey! Muzhe Zingra par private encrypted message karo:\n`,
-        url: link
-      });
-      return;
-    } catch (e) {}
-  }
   navigator.clipboard.writeText(link);
-  alert("Link Copied! Apne dost ko bhejo:\n" + link);
+  alert("Link Copied! Dost ko bhejo:\n" + link);
 }
 
 // --- E2EE DIRECT MESSAGING ---
@@ -133,7 +115,7 @@ function loadSavedChats() {
 }
 
 async function sendMsg() {
-  if (!partnerUsername) return alert("Pehle dost ka username likhein aur Chat dabayein!");
+  if (!partnerUsername) return alert("Pehle upar se kisi Online user par tap karein!");
   const input = document.getElementById('msgInput');
   const text = input.value.trim();
   if (!text) return;
@@ -161,7 +143,6 @@ async function sendMsg() {
   input.value = '';
 }
 
-// INCOMING MESSAGE
 socket.on('receive-message', async (data) => {
   await initCrypto();
   if (partnerUsername !== data.from) {
@@ -197,7 +178,7 @@ function renderBubble(text, type, time) {
   box.scrollTop = box.scrollHeight;
 }
 
-// --- VIDEO FEED & WATCH ---
+// --- VIDEO FEED ---
 const allVideos = [
   { id: "vid1", title: "Big Buck Bunny - 4K Ultra HD Open Source Movie", channel: "Blender Animation", avatar: "B", avatarBg: "#f97316", views: "4.8M views", duration: "10:34", thumb: "https://images.unsplash.com/photo-1578632767115-351597cf2477?w=600", hlsSrc: "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8", likes: 42000 },
   { id: "vid2", title: "Tears of Steel - Cyberpunk Sci-Fi VFX Short Film", channel: "Sci-Fi Cinema", avatar: "S", avatarBg: "#06b6d4", views: "2.1M views", duration: "12:14", thumb: "https://images.unsplash.com/photo-1534447677768-be436bb09401?w=600", hlsSrc: "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8", likes: 18400 },

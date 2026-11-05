@@ -4,7 +4,6 @@ localStorage.setItem('zingra_my_username', myUsername);
 
 document.getElementById('myUsernameInput').value = myUsername;
 
-// FAST WEBSOCKET CLIENT
 const socket = io({ transports: ['websocket', 'polling'] });
 
 socket.on('connect', () => {
@@ -94,7 +93,7 @@ function loadSavedChats() {
   saved.forEach(m => renderBubble(m.text, m.type, m.time, m.status, m.id));
 }
 
-// SEND MESSAGE (With Delivery Tracking)
+// SEND MESSAGE
 async function sendMsg() {
   if (!partnerUsername) return alert("Pehle dost ka username likhein aur Chat dabayein!");
   const input = document.getElementById('msgInput');
@@ -116,7 +115,6 @@ async function sendMsg() {
     time
   };
 
-  // Pehle screen par Single Tick ✓ dikhana
   socket.emit('send-message', payload);
   renderBubble(text, 'sent', time, 'sending', msgId);
 
@@ -127,23 +125,21 @@ async function sendMsg() {
   input.value = '';
 }
 
-// DELIVERY ACKNOWLEDGEMENT FROM SERVER
+// DELIVERY STATUS (Single tick -> Double tick)
 socket.on('message-status', ({ id, status, to }) => {
   const tickEl = document.getElementById(`tick_${id}`);
+  if (!tickEl) return;
+
   if (status === 'delivered') {
-    if (tickEl) {
-      tickEl.innerHTML = `✓✓ Delivered`;
-      tickEl.style.color = `#38bdf8`;
-    }
-  } else if (status === 'offline') {
-    if (tickEl) {
-      tickEl.innerHTML = `⚠️ @${to} offline hai!`;
-      tickEl.style.color = `#f59e0b`;
-    }
+    tickEl.innerHTML = `✓✓`;
+    tickEl.style.color = `#38bdf8`;
+  } else if (status === 'queued') {
+    tickEl.innerHTML = `✓ Sent (Waiting for @${to})`;
+    tickEl.style.color = `#94a3b8`;
   }
 });
 
-// INCOMING MESSAGE
+// INCOMING MESSAGE (Live ya Queued delivery)
 socket.on('receive-message', async (data) => {
   await initCrypto();
   if (partnerUsername !== data.from) {
@@ -177,7 +173,7 @@ function renderBubble(text, type, time, status, id) {
   
   let statusText = '';
   if (type === 'sent') {
-    statusText = status === 'delivered' ? '✓✓ Delivered' : '✓ Sent';
+    statusText = status === 'delivered' ? '✓✓' : '✓';
   }
 
   div.innerHTML = `

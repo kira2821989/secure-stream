@@ -5,7 +5,6 @@ const { Server } = require('socket.io');
 const app = express();
 const server = http.createServer(app);
 
-// FAST WEBSOCKET CONFIGURATION (Zero Delay)
 const io = new Server(server, {
   cors: { origin: "*" },
   transports: ['websocket', 'polling']
@@ -13,12 +12,13 @@ const io = new Server(server, {
 
 app.use(express.static('public'));
 
-// Online users map: clean_username -> socket.id
+// Online users: username -> socketId
 const onlineUsers = new Map();
 
-io.on('connection', (socket) => {
-  console.log('⚡ New Connection:', socket.id);
+// WHATSAPP QUEUE: Offline users ke pending messages yahan save honge
+const offlineMessages = new Map();
 
+io.on('connection', (socket) => {
   // USER REGISTRATION
   socket.on('register-user', ({ username }) => {
     if (!username) return;
@@ -29,9 +29,24 @@ io.on('connection', (socket) => {
     
     console.log(`✅ Online: @${clean}`);
     socket.emit('registered-success', { username: clean });
+
+    // JAise hi banda online aaye, uske purane pending messages deliver karo!
+    if (offlineMessages.has(clean)) {
+      const pending = offlineMessages.get(clean);
+      console.log(`📦 Delivering ${pending.length} pending messages to @${clean}`);
+      pending.forEach(msg => {
+        socket.emit('receive-message', msg);
+        // Sender ko batao ki deliver ho gaya
+        const senderSocket = onlineUsers.get(msg.from);
+        if (senderSocket) {
+          io.to(senderSocket).emit('message-status', { id: msg.id, status: 'delivered' });
+        }
+      });
+      offlineMessages.delete(clean); // Delivered messages clear
+    }
   });
 
-  // DIRECT 1-ON-1 MESSAGE WITH DELIVERY ACKNOWLEDGEMENT
+  // SEND MESSAGE
   socket.on('send-message', (data) => {
     const toUser = (data.to || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
     const fromUser = (data.from || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -39,24 +54,27 @@ io.on('connection', (socket) => {
     const targetSocketId = onlineUsers.get(toUser);
 
     if (targetSocketId) {
-      // Receiver online hai -> Message deliver karo!
-      io.to(toUser).emit('receive-message', data);
-      
-      // Sender ko confirm karo ki deliver ho gaya (Double Tick ✓✓)
+      // 1. Receiver online hai -> Turant deliver karo
+      io.to(targetSocketId).emit('receive-message', data);
       socket.emit('message-status', { id: data.id, status: 'delivered' });
-      console.log(`🚀 Delivered: @${fromUser} -> @${toUser}`);
+      console.log(`🚀 Instant Delivered: @${fromUser} -> @${toUser}`);
     } else {
-      // Receiver offline hai
-      socket.emit('message-status', { id: data.id, status: 'offline', to: toUser });
-      console.log(`⚠️ Offline: @${toUser}`);
+      // 2. Receiver offline hai -> Server par save karo (WhatsApp style)
+      if (!offlineMessages.has(toUser)) {
+        offlineMessages.set(toUser, []);
+      }
+      offlineMessages.get(toUser).push(data);
+      socket.emit('message-status', { id: data.id, status: 'queued', to: toUser });
+      console.log(`📥 Queued for offline user @${toUser}`);
     }
   });
 
-  // Watch Party video sync
+  // Video sync
   socket.on('sync-video', (data) => {
     const toUser = (data.to || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
-    if (toUser) {
-      io.to(toUser).emit('sync-video', data);
+    const target = onlineUsers.get(toUser);
+    if (target) {
+      io.to(target).emit('sync-video', data);
     }
   });
 
@@ -70,5 +88,5 @@ io.on('connection', (socket) => {
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`⚡ Zingra Ultra-Fast Server on port ${PORT}`);
+  console.log(`⚡ Zingra Message Server with Queue on port ${PORT}`);
 });

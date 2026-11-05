@@ -19,36 +19,43 @@ socket.on('connect', () => {
   updateActiveUI();
 });
 
-// AUTH ERROR: Agar kisi aur ka username churane ki koshish ki
+// AUTH RESPONSE
 socket.on('auth-error', (msg) => {
   alert(msg);
-  changeMyUsername();
+  openAuthModal();
 });
 
 socket.on('auth-success', ({ username }) => {
   document.getElementById('myUsernameDisplay').innerText = "@" + username;
 });
 
-// USERNAME + PIN SETTING ENGINE
-function changeMyUsername() {
-  const newU = prompt("Apna Naya Username likhein (bina space ke):", myUsername);
-  if (!newU || !newU.trim()) return;
+// MODAL OPEN / CLOSE LOGIC
+function openAuthModal() {
+  document.getElementById('modalUsernameInput').value = myUsername;
+  document.getElementById('modalPinInput').value = myPin;
+  document.getElementById('authModal').style.display = 'flex';
+}
 
-  const cleanName = newU.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
-  const enteredPin = prompt(`'@${cleanName}' ke liye apna 4-Digit Secret PIN dalein:`, myPin);
-  if (!enteredPin || enteredPin.length < 4) {
-    alert("PIN kam se kam 4 number ka hona chahiye!");
-    return;
-  }
+function closeAuthModal() {
+  document.getElementById('authModal').style.display = 'none';
+}
 
-  myUsername = cleanName;
-  myPin = enteredPin.trim();
+function saveAuthModal() {
+  const u = document.getElementById('modalUsernameInput').value.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+  const p = document.getElementById('modalPinInput').value.trim();
+
+  if (!u) return alert("Username likhein!");
+  if (!p || p.length < 4) return alert("PIN kam se kam 4 number ka hona chahiye!");
+
+  myUsername = u;
+  myPin = p;
 
   localStorage.setItem('zingra_my_username', myUsername);
   localStorage.setItem('zingra_my_pin', myPin);
 
   registerWithServer();
   updateActiveUI();
+  closeAuthModal();
 }
 
 function toggleGhostMode() {

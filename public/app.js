@@ -1,131 +1,33 @@
 let myUsername = localStorage.getItem('zingra_my_username') || ("user" + Math.floor(100 + Math.random() * 900));
-let myPin = localStorage.getItem('zingra_my_pin') || "1234";
-
+myUsername = myUsername.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
 localStorage.setItem('zingra_my_username', myUsername);
-localStorage.setItem('zingra_my_pin', myPin);
 
 document.getElementById('myUsernameInput').value = myUsername;
-document.getElementById('myPinInput').value = myPin;
 
-let isGhostMode = localStorage.getItem('zingra_ghost_mode') === 'true';
-
-const socket = io();
-
-function registerWithServer() {
-  socket.emit('register-user', { username: myUsername, pin: myPin, ghostMode: isGhostMode });
-}
+// FAST WEBSOCKET CLIENT
+const socket = io({ transports: ['websocket', 'polling'] });
 
 socket.on('connect', () => {
-  registerWithServer();
-  pollFriendsStatus();
+  socket.emit('register-user', { username: myUsername });
+  document.getElementById('lockStatusBadge').innerText = "🟢 Connected (Fast)";
+  document.getElementById('lockStatusBadge').style.color = "#10b981";
   updateActiveUI();
 });
 
-// AUTH RESPONSE (AGAR KISI AUR KA CHURANE KI KOSHISH KI)
-socket.on('auth-error', (msg) => {
-  alert(msg);
-  document.getElementById('lockStatusBadge').innerText = "❌ PIN Mismatch";
+socket.on('disconnect', () => {
+  document.getElementById('lockStatusBadge').innerText = "🔴 Reconnecting...";
   document.getElementById('lockStatusBadge').style.color = "#ef4444";
 });
 
-socket.on('auth-success', ({ username }) => {
-  document.getElementById('lockStatusBadge').innerText = "● Locked & Verified";
-  document.getElementById('lockStatusBadge').style.color = "#10b981";
-});
-
-// SAVE USERNAME & PIN (Direct in-page button)
 function saveMyIdentity() {
   const u = document.getElementById('myUsernameInput').value.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
-  const p = document.getElementById('myPinInput').value.trim();
-
   if (!u) return alert("Username likhein!");
-  if (!p || p.length < 4) return alert("PIN kam se kam 4 number ka hona chahiye!");
 
   myUsername = u;
-  myPin = p;
-
   localStorage.setItem('zingra_my_username', myUsername);
-  localStorage.setItem('zingra_my_pin', myPin);
-
-  registerWithServer();
+  socket.emit('register-user', { username: myUsername });
   updateActiveUI();
-  alert(`@${myUsername} account PIN: ${myPin} ke sath lock kar diya gaya hai!`);
-}
-
-function toggleGhostMode() {
-  isGhostMode = !isGhostMode;
-  localStorage.setItem('zingra_ghost_mode', isGhostMode);
-  registerWithServer();
-  renderFriendsBar([]);
-  alert(isGhostMode ? "👻 Ghost Mode Active! Doston ko aap offline dikhoge." : "Visible Mode Active!");
-  pollFriendsStatus();
-}
-
-// FRIENDS SYSTEM
-function getFriendsList() {
-  return JSON.parse(localStorage.getItem('zingra_friends_list') || '[]');
-}
-
-function addFriendManual() {
-  const input = document.getElementById('partnerInput');
-  const name = input.value.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
-  if (!name) return alert("Dost ka username likhein!");
-  if (name === myUsername) return alert("Aap khud ko add nahi kar sakte!");
-
-  let friends = getFriendsList();
-  if (!friends.includes(name)) {
-    friends.push(name);
-    localStorage.setItem('zingra_friends_list', JSON.stringify(friends));
-  }
-  setPartner(name);
-  pollFriendsStatus();
-}
-
-function pollFriendsStatus() {
-  const friends = getFriendsList();
-  if (friends.length > 0) {
-    socket.emit('check-friends-status', friends);
-  } else {
-    renderFriendsBar([]);
-  }
-}
-setInterval(pollFriendsStatus, 10000);
-
-socket.on('friends-status-response', (onlineFriends) => {
-  renderFriendsBar(onlineFriends);
-});
-
-function renderFriendsBar(onlineFriends) {
-  let bar = document.getElementById('onlineUsersBar');
-  if (!bar) {
-    bar = document.createElement('div');
-    bar.id = 'onlineUsersBar';
-    bar.style.cssText = "background: #0d1522; border-bottom: 1px solid #1f2937; padding: 8px 12px; display: flex; align-items: center; justify-content: space-between; gap: 8px; overflow-x: auto; scrollbar-width: none;";
-    const pBar = document.querySelector('.user-profile-bar');
-    if (pBar) pBar.parentNode.insertBefore(bar, pBar);
-  }
-
-  const friends = getFriendsList();
-  let content = '';
-
-  if (friends.length === 0) {
-    content = `<span style="font-size:11px; color:#64748b;">🔒 No contacts added yet. Add a friend below!</span>`;
-  } else if (onlineFriends.length === 0) {
-    content = `<span style="font-size:11px; color:#94a3b8;">Dost offline hain (${friends.length} contacts)</span>`;
-  } else {
-    content = `<span style="font-size:11px; color:#10b981; font-weight:bold;">Online:</span>` + onlineFriends.map(f => `
-      <button onclick="setPartner('${f}')" style="background:${f === partnerUsername ? '#2563eb' : '#1e293b'}; color:#fff; border:1px solid ${f === partnerUsername ? '#38bdf8' : '#10b981'}; padding:3px 10px; border-radius:14px; font-size:11px; cursor:pointer; display:flex; align-items:center; gap:4px;">
-        <span style="color:#10b981;">●</span> @${f}
-      </button>
-    `).join('');
-  }
-
-  bar.innerHTML = `
-    <div style="display:flex; align-items:center; gap:8px;">${content}</div>
-    <button onclick="toggleGhostMode()" style="background:${isGhostMode ? '#4b5563' : '#1f2937'}; color:#fff; border:1px solid #374151; padding:3px 8px; border-radius:10px; font-size:11px; cursor:pointer; flex-shrink:0;">
-      ${isGhostMode ? '👻 Ghost: ON' : '👁️ Ghost: OFF'}
-    </button>
-  `;
+  alert(`Aapka username: @${myUsername} save ho gaya!`);
 }
 
 const urlParams = new URLSearchParams(window.location.search);
@@ -138,16 +40,8 @@ if (urlParams.has('chat')) {
 function setPartner(name) {
   partnerUsername = name.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
   localStorage.setItem('zingra_active_partner', partnerUsername);
-
-  let friends = getFriendsList();
-  if (!friends.includes(partnerUsername)) {
-    friends.push(partnerUsername);
-    localStorage.setItem('zingra_friends_list', JSON.stringify(friends));
-  }
-
   updateActiveUI();
   loadSavedChats();
-  pollFriendsStatus();
 }
 
 function updateActiveUI() {
@@ -156,12 +50,15 @@ function updateActiveUI() {
     statusEl.innerHTML = `🔒 Chatting with: <b style="color:#38bdf8;">@${partnerUsername}</b>`;
     document.getElementById('partnerInput').value = partnerUsername;
   } else {
-    statusEl.innerHTML = `🔒 Private Mode • Dost ka naam likhein`;
+    statusEl.innerHTML = `🔒 Dost ka username likhkar 'Chat' dabayein`;
   }
 }
 
 function connectToPartnerManual() {
-  addFriendManual();
+  const val = document.getElementById('partnerInput').value.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+  if (!val) return alert("Dost ka username likhein!");
+  if (val === myUsername) return alert("Aap khud ko message nahi bhej sakte!");
+  setPartner(val);
 }
 
 function shareMyChatLink() {
@@ -170,7 +67,7 @@ function shareMyChatLink() {
   alert("Link Copied! Apne dost ko bhejo:\n" + link);
 }
 
-// --- E2EE DIRECT MESSAGING ---
+// --- E2EE ENGINE ---
 let sharedKey = null;
 async function initCrypto() {
   if (!sharedKey) {
@@ -194,9 +91,10 @@ function loadSavedChats() {
   const key = getChatKey();
   if (!key) return;
   const saved = JSON.parse(localStorage.getItem(key) || '[]');
-  saved.forEach(m => renderBubble(m.text, m.type, m.time));
+  saved.forEach(m => renderBubble(m.text, m.type, m.time, m.status, m.id));
 }
 
+// SEND MESSAGE (With Delivery Tracking)
 async function sendMsg() {
   if (!partnerUsername) return alert("Pehle dost ka username likhein aur Chat dabayein!");
   const input = document.getElementById('msgInput');
@@ -207,8 +105,10 @@ async function sendMsg() {
   const iv = window.crypto.getRandomValues(new Uint8Array(12));
   const cipher = await window.crypto.subtle.encrypt({ name: "AES-GCM", iv }, sharedKey, new TextEncoder().encode(text));
   const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const msgId = 'msg_' + Date.now();
 
   const payload = {
+    id: msgId,
     to: partnerUsername,
     from: myUsername,
     cipher: btoa(String.fromCharCode(...new Uint8Array(cipher))),
@@ -216,16 +116,34 @@ async function sendMsg() {
     time
   };
 
+  // Pehle screen par Single Tick ✓ dikhana
   socket.emit('send-message', payload);
-  renderBubble(text, 'sent', time);
+  renderBubble(text, 'sent', time, 'sending', msgId);
 
   const key = getChatKey();
   const saved = JSON.parse(localStorage.getItem(key) || '[]');
-  saved.push({ text, type: 'sent', time });
+  saved.push({ id: msgId, text, type: 'sent', time, status: 'sending' });
   localStorage.setItem(key, JSON.stringify(saved));
   input.value = '';
 }
 
+// DELIVERY ACKNOWLEDGEMENT FROM SERVER
+socket.on('message-status', ({ id, status, to }) => {
+  const tickEl = document.getElementById(`tick_${id}`);
+  if (status === 'delivered') {
+    if (tickEl) {
+      tickEl.innerHTML = `✓✓ Delivered`;
+      tickEl.style.color = `#38bdf8`;
+    }
+  } else if (status === 'offline') {
+    if (tickEl) {
+      tickEl.innerHTML = `⚠️ @${to} offline hai!`;
+      tickEl.style.color = `#f59e0b`;
+    }
+  }
+});
+
+// INCOMING MESSAGE
 socket.on('receive-message', async (data) => {
   await initCrypto();
   if (partnerUsername !== data.from) {
@@ -240,10 +158,10 @@ socket.on('receive-message', async (data) => {
     );
     const text = new TextDecoder().decode(dec);
 
-    renderBubble(text, 'received', data.time);
+    renderBubble(text, 'received', data.time, 'delivered', data.id);
     const key = getChatKey();
     const saved = JSON.parse(localStorage.getItem(key) || '[]');
-    saved.push({ text, type: 'received', time: data.time });
+    saved.push({ id: data.id, text, type: 'received', time: data.time, status: 'delivered' });
     localStorage.setItem(key, JSON.stringify(saved));
     
     switchTab('chat');
@@ -252,11 +170,23 @@ socket.on('receive-message', async (data) => {
   }
 });
 
-function renderBubble(text, type, time) {
+function renderBubble(text, type, time, status, id) {
   const box = document.getElementById('chatsContainer');
   const div = document.createElement('div');
   div.className = `bubble ${type}`;
-  div.innerHTML = `<div>${text}</div><div class="time-tick">${time} ${type === 'sent' ? '✓✓' : ''}</div>`;
+  
+  let statusText = '';
+  if (type === 'sent') {
+    statusText = status === 'delivered' ? '✓✓ Delivered' : '✓ Sent';
+  }
+
+  div.innerHTML = `
+    <div>${text}</div>
+    <div style="display:flex; justify-content:flex-end; gap:4px; font-size:9px; opacity:0.8; margin-top:3px;">
+      <span>${time}</span>
+      <span id="tick_${id}" style="color:${status === 'delivered' ? '#38bdf8' : '#aaa'}; font-weight:bold;">${statusText}</span>
+    </div>
+  `;
   box.appendChild(div);
   box.scrollTop = box.scrollHeight;
 }
